@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+<style>
+ circle:hover {
+  fill: red;
+}
+</style>
+
+
+
+<body>
+	<svg></svg>
+	<script src="d3.js"></script>
+	<script>
+
+		// initial elements
+		var cities = [];						// contains total number of cities
+		var selectedCities = [];				// holds the cities that have been selected
+		var tours = [];							// holds path of different TSPs
+		var gen = [];
+		var fits = [];
+		const FREQ = 50;
+		const NUM_OF_CITIES = 20;
+		const NUM_OF_TOURS = 10;
+
+		
+		// setting up initial svg
+		var width = 500, height = 500;
+		var svg = d3.select("svg")
+		  		.attr("width", width)
+		  		.attr("height", height);
+
+
+		// CITY HELPER FUNCTIONS-----------------------------------------------
+
+		// creating a variable number of cities randomly
+		function generateCities(numCities, frequency)
+		{
+			var cityArray = [];
+			var range = height / frequency - 1;
+			var duplicate = false;
+
+			while(cityArray.length<numCities)
+			{
+				var xcoord = Math.floor(Math.random()*range + 1)*frequency;
+				var ycoord = Math.floor(Math.random()*range + 1)*frequency;
+				
+				// checking for duplicates
+				for(var i=0; i<cityArray.length; i++)
+					duplicate = equalCity([xcoord, ycoord], cityArray[i]);
+
+				// adds if there are no duplicates
+				if(!duplicate)
+					cityArray.push([xcoord, ycoord]);
+			}
+
+			return cityArray;
+		}
+
+		// checks if two cities are equal
+		function equalCity(city1, city2)
+		{
+			return((city1[0]==city2[0]) && (city1[1]==city2[1]))
+		}
+
+		// adds a selected city to "storage"
+		function selectCity(cityArray)
+		{  
+			var colorFill = document.getElementById(this.id)
+
+			if(!cityArray.includes(this.id))
+			{
+				cityArray.push(this.id);
+				colorFill.style.fill = "blue";
+			}
+			else if(colorFill.style.fill=="blue")
+			{
+				colorFill.style.fill = "black";
+				var index = cityArray.indexOf(this.id);
+
+				if(index>-1)
+					cityArray.splice(index);
+			}
+
+			// uncomment for debugging
+			//console.log(cityArray);
+
+			return cityArray;
+		}
+
+		// calculates distance between two cities
+		function distance(c1, c2)
+		{ 
+			return (parseFloat(c1[0]-c2[0])**2 + 
+					parseFloat(c1[1]-c2[1])**2)**0.5
+		}
+
+		// returns one city coords
+		function getCity(index, cityArray)
+		{
+			return cityArray[index];
+		}
+
+		// returns all city coords in a given tour
+		function getCityTourCoords(tour, cityArray)
+		{
+			var cityTourCoords = []
+			for(var i=0; i<tour.length; i++)
+				cityTourCoords.push(getCity(tour[i], cityArray));
+
+			return cityTourCoords;
+		}
+
+
+		// TOUR HELPER FUNCTIONS-----------------------------------------------
+
+		function tourDistance(t1, cityArray)
+		{
+			var tourDist = 0;
+			for(var i=0; i<t1.length-1; i++)
+				tourDist += distance(getCity(t1[i], cityArray), 
+									 getCity(t1[i+1], cityArray));
+
+			return tourDist;
+		}
+
+		// creates random tour
+		function randomTourInds(numCities)
+		{
+			var randInts = [];
+			var randNum;
+			
+			while(randInts.length<numCities)
+			{
+				randNum = Math.floor(Math.random()*numCities);
+				
+				if(!randInts.includes(randNum))
+					randInts.push(randNum);
+			}
+
+			return randInts;
+		}
+
+		// fixes any tours with repeated cities
+		// make cleaner?
+		function fixRepeat(tour)
+		{
+			var cityInds = [];
+			var notUsed;
+
+			function notUsedCities(element)
+			{
+				return element != -1;
+			}
+			
+			for(var i=0; i<tour.length; i++)
+				cityInds.push(i);
+
+			for(var i=0; i<tour.length; i++)
+			{
+				if(cityInds[tour[i]]==-1)
+					tour[i] = -2;
+				else
+					cityInds[tour[i]] = -1;
+			}
+
+			for(var i=0; i<tour.length; i++)
+			{
+				if(tour[i]==-2)
+				{
+					notUsed = cityInds.find(notUsedCities);
+					tour[i] = notUsed;
+					cityInds[notUsed] = -1;
+				}
+			}
+
+		}
+
+		// checks if tours are equal
+		function equalTour(t1, t2)
+		{
+			var isEqual = false;
+			
+			for(var i=0; i<t1.length; i++)
+			{
+				if(t1[i]==t2[i])
+					isEqual = true;
+				else
+					isEqual = false;
+			}
+
+			return isEqual;
+		}
+
+		// GENERATION HELPER FUNCTIONS-----------------------------------------
+
+		// creates a generation with random tours
+		function initGen(numTours, cityArray)
+		{
+			var generation = [];
+
+			for(var i=0; i<numTours; i++)
+				generation.push(randomTourInds(cityArray.length));
+
+			return generation;
+		}
+
+		// sums up all tour distances in a generation
+		function calcFitness(generation, cityArray)
+		{
+			var fitnessArray = [];
+
+			for(var i=0; i<gen.length; i++)
+			{
+				fitnessArray.push(tourDistance(generation[i], cityArray));
+			}
+
+			return fitnessArray;
+		}
+
+		// calculates average fitness of the generation
+		function avgFitness(fitnessArray)
+		{
+			const reducer = (accumulator, currentValue) => accumulator + currentValue;
+			var totalGenFitness = fitnessArray.reduce(reducer);
+
+			return totalGenFitness/fitnessArray.length;
+		}
+
+		// returns the index of the best (lowest distance) tour given a generation fits
+		function findBestTourInd(generationFits)
+		{
+			var minIndex = generationFits.reduce((iMin, x, i, arr) => x < arr[iMin] ? i : iMin, 0);
+
+			return minIndex;
+		}
+
+		// GENETIC ALGORITHM FUNCTIONS-----------------------------------------
+
+		// crosses swaps the latter ends of the tours
+		// need to rewrite this crossover method such that it only produces one child
+		// ORIGINAL
+		// function crossOver(tour1, tour2)
+		// {
+		// 	var newTour1 = [], newTour2 = [];
+
+		// 	// assumes tour1 and tour2 sizes are the same
+		// 	var mid = Math.floor(tour1.length/2)-1;
+		// 	//var mid = 2;
+			
+		// 	// creating new tours
+		// 	newTour1 = newTour1.concat(tour1.slice(0, mid+1));
+		// 	newTour1 = newTour1.concat(tour2.slice(mid+1));
+
+		// 	newTour2 = newTour2.concat(tour2.slice(0, mid+1));
+		// 	newTour2 = newTour2.concat(tour1.slice(mid+1));
+
+		// 	fixRepeat(newTour1);
+		// 	fixRepeat(newTour2);
+
+		// 	return [newTour1, newTour2];
+		// }
+
+		// // creates a new generation by crossing over
+		// function createNewGen(generation, cityArray)
+		// {
+		// 	var newGen = [], newGenFits = [];
+		// 	var genFits = new Array();
+		// 	var crossedGens, cross1, cross2;
+
+		// 	genFits = calcFitness(generation, cityArray);
+
+		// 	// removing the smallest fitness (i.e. best tour)
+		// 	var minIndex = findBestTourInd(genFits);
+		// 	var minGen = generation[minIndex];
+		// 	generation.splice(minIndex, 1);
+		// 	genFits.splice(minIndex, 1);
+
+		// 	// removing the 2nd smallest (i.e 2nd best tour)
+		// 	var minIndex2 = findBestTourInd(genFits);
+		// 	var minGen2 = generation[minIndex2];
+		// 	generation.splice(minIndex2, 1);
+		// 	genFits.splice(minIndex2, 1);
+
+		// 	newGen.push(minGen);
+		// 	newGen.push(minGen2);
+
+		// 	// crossing over the remaining tours in previous gen
+		// 	for(var i=0; i<generation.length-1; i+=2)
+		// 	{
+		// 		crossedGens = crossOver(generation[i], generation[i+1]);
+				
+		// 		cross1 = crossedGens[0];
+		// 		cross2 = crossedGens[1];
+				
+		// 		newGen.push(cross1);
+		// 		newGen.push(cross2);				
+		// 	}
+
+		// 	console.log(newGen.length);
+		// 	console.log("old fits: ", calcFitness(newGen, cityArray));
+		// 	console.log("best tour: ", tourDistance(newGen[0], cityArray));
+
+		// 	return newGen;
+		// }
+		function crossOver(tour1, tour2)
+		{
+			// should only return one child
+			var child = [];
+			const numCities = tour1.length;
+	
+			var pos1 = Math.floor(Math.random()*(numCities-1));
+			var pos2 = 0;
+			while(pos1>=pos2)
+				pos2 = Math.floor(Math.random()*numCities);
+		
+
+			var allCities = [];
+			for(var i=0; i<tour1.length; i++)
+				allCities.push(i); 
+
+			function emptySpot(element)
+			{
+				return element == -1;
+			}
+
+			for(var i=0; i<tour1.length; i++)
+			{
+				if(i>=pos1 && i<=pos2)
+				{
+					child.push(tour1[i]);
+					allCities[tour1[i]] = -2;
+				}
+				else
+					child.push(-1);
+			}	
+
+			for(var i=0; i<tour1.length; i++)
+			{
+				if(allCities[tour2[i]] != -2)
+				{
+					child[child.findIndex(emptySpot)] = tour2[i];
+					allCities[tour2[i]] = -2;
+				}
+			}
+
+			return child;
+		}
+
+		function createNewGen(generation, cityArray)
+		{
+			var newGen = [], newGenFits = [];
+			var genFits = new Array();
+			var newChild;
+
+			genFits = calcFitness(generation, cityArray);
+
+			// removing the smallest fitness (i.e. best tour)
+			var minIndex = findBestTourInd(genFits);
+			var minGen = generation[minIndex];
+			generation.splice(minIndex, 1);
+			genFits.splice(minIndex, 1);
+
+			newGen.push(minGen);
+
+			// crossing over the remaining tours in previous gen
+			for(var i=0; i<generation.length-1; i++)
+			{
+				newChild = crossOver(generation[i], generation[i+1]);
+				newGen.push(newChild);		
+			}
+
+			// console.log(newGen.length);
+			// console.log("old fits: ", calcFitness(newGen, cityArray));
+			// console.log("best tour: ", tourDistance(newGen[0], cityArray));
+
+			return newGen;
+		}
+
+
+		// DRAWING FUNCTIONS-----------------------------------------
+
+		// creates gridlines
+		function drawGrid(frequency)
+		{
+			// drawing gridlines
+			for(var i=frequency; i<=height; i+=frequency)
+			{
+				svg.append("rect")
+				   .attr("width", width)
+				   .attr("height", 1)
+				   .attr("y", i);
+
+				svg.append("rect")
+			   	   .attr("height", height)
+			       .attr("width", 1)
+			       .attr("x", i);
+			}
+		}
+
+		// creates the circles that represent the cities
+		function drawCities(cityArray)
+		{
+			circles = d3.select("svg")
+					.selectAll("circle")
+					.data(cityArray)
+					.enter()
+					.append("circle")
+					.attr("cx", function(d){return d[0]})
+					.attr("cy", function(d){return d[1]})
+					.attr("r", 4)
+					.attr("id", function(d, i){return i})
+					.on("click", selectCity);
+		}
+
+		// constructing line generator
+		var line = d3.line();
+		chart = svg.append("g");
+
+		// make the arguments more descriptive
+		function drawLine(cityTourInds, cityArray)
+		{	
+			var actualCities = getCityTourCoords(cityTourInds, cityArray);
+			var path = chart.selectAll(".paths")
+							.data([actualCities])
+							.enter()
+							.append("path")
+							.attr("d", line)
+							.attr("stroke-width", 2)
+							.attr("stroke", "gray")
+							.attr("fill", "none");
+
+			var totalLength = path.node().getTotalLength();
+
+			path.attr("stroke-dasharray", totalLength + " " + totalLength)
+				.attr("stroke-dashoffset", totalLength)
+				.transition()
+				.duration(2000)
+				.attr("stroke-dashoffset", 0);
+		}
+
+
+		//---------------------------------------------------------------------
+
+		cities = generateCities(100, FREQ);
+		drawGrid(FREQ);
+		drawCities(cities);
+
+		// creating a random set of tours in 1st gen
+		gen = initGen(100, cities);
+		fits = calcFitness(gen, cities);
+		console.log("first gen average fit: ", avgFitness(fits));
+
+		for(var i=0; i<100; i++)
+		{
+			var gensom = new Array();
+			var nFits = new Array();
+
+			gensom = createNewGen(gen, cities);
+			gen = gensom.slice();
+
+			nFits = calcFitness(gen, cities);
+			console.log(avgFitness(nFits));
+		}
+
+		
+		
+	</script>
+</body>
+</html>
